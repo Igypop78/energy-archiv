@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import csv
 import gzip
+import os
+import shutil
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -27,19 +29,38 @@ def export_csv(cfg, con, path: Path) -> int:
     return n
 
 
+def _copy_to(src: Path, target: Path) -> None:
+    """Skopíruje hotový súbor na NAS cez dočasné meno (SMB/NFS nezvládajú zámky SQLite)."""
+    part = target.with_name(target.name + ".part")
+    shutil.copyfile(src, part)
+    os.replace(part, target)
+
+
 def run(cfg, con) -> list[str]:
     bdir = Path(cfg["backup"]["dir"])
     bdir.mkdir(parents=True, exist_ok=True)
+    local = Path(cfg["database"]).parent / "zaloha-tmp"
+    local.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
     target = bdir / f"archiv-{today}.sqlite"
-    tmp = target.with_suffix(".tmp")
-    dst = sqlite3.connect(tmp)
+
+    # 1) konzistentná kópia SQLite na lokálny disk, 2) hotový súbor skopírovať na NAS
+    tmp_db = local / "archiv.sqlite"
+    tmp_db.unlink(missing_ok=True)
+    dst = sqlite3.connect(tmp_db)
     con.backup(dst)
     dst.close()
-    tmp.replace(target)
+    _copy_to(tmp_db, target)
     msgs = [f"záloha {target} ({target.stat().st_size / 1e6:.1f} MB)"]
-    rows = export_csv(cfg, con, bdir / "archiv-posledny.csv.gz")
+
+    tmp_csv = local / "archiv-posledny.csv.gz"
+    rows = export_csv(cfg, con, tmp_csv)
+    _copy_to(tmp_csv, bdir / "archiv-posledny.csv.gz")
     msgs.append(f"CSV export: {rows} riadkov")
+    for f in (tmp_db, tmp_csv):
+        f.unlink(missing_ok=True)
+    for f in bdir.glob("*.tmp"):  # pozostatky starej verzie
+        f.unlink(missing_ok=True)
 
     # rotácia: posledných N denných + prvá záloha každého mesiaca
     files = sorted(bdir.glob("archiv-????-??-??.sqlite"))
