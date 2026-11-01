@@ -1,0 +1,43 @@
+# Energetický archív – konfigurácia (/etc/energy-archiv/config.yaml)
+# Tajné údaje (tokeny, heslá) patria do /etc/energy-archiv/.env, nie sem.
+
+timezone: Europe/Bratislava
+database: /var/lib/energy-archiv/archiv.sqlite
+
+backup:
+  dir: /mnt/nas/energy-archiv   # NAS pripojený do LXC (pozri README)
+  keep_daily: 14                # posledných 14 denných záloh
+  keep_monthly: 24              # + prvá záloha z každého mesiaca, 2 roky
+
+# Poradie zdrojov – prvý, ktorý má hodnotu pre danú hodinu, vyhráva.
+#   oprava = ručná oprava jednej hodiny, zsd = elektromer distribučky,
+#   ha = Home Assistant, deye = Deye Cloud, manual = rozpočítané faktúry
+priority:
+  default: [oprava, zsd, ha, deye, manual]
+  solar: [oprava, ha, deye, manual]
+  # battery_in: [oprava, ha, deye]
+
+ha:
+  history_start: "2015-01-01"   # odkiaľ hľadať históriu pri prvom zbere
+  resync_hours: 48              # pri každom zbere znova posledných 48 h (opravy v HA)
+
+deye:
+  base_url: https://eu1-developer.deyecloud.com
+  station_id: null              # null = prvá stanica na účte (python -m energy_archiv deye-stanice)
+  map:                          # pole Deye -> veličina v archíve (null = nepoužiť)
+    generationPower: solar
+    purchasePower: grid_import
+    gridPower: grid_export
+    chargePower: battery_in
+    dischargePower: battery_out
+  power_divisor: 1000           # API vracia W
+
+zsd:
+  map:
+    dodavka: grid_export        # „Činná dodávka…“
+    odber: grid_import          # „Činný výkon/odber…“
+
+web:
+  host: 0.0.0.0
+  port: 8765
+  password: null                # alebo WEB_PASSWORD v .env (používateľ ľubovoľný)

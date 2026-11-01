@@ -1,0 +1,10 @@
+[Unit]
+Description=Energetický archív – každú noc o 3:17
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

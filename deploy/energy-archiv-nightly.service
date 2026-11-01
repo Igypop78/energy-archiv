@@ -1,0 +1,8 @@
+[Unit]
+Description=Energetický archív – nočný zber z HA a záloha na NAS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/energy-archiv nightly

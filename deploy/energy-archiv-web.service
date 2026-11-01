@@ -1,0 +1,12 @@
+[Unit]
+Description=Energetický archív – web rozhranie
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/energy-archiv web
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
