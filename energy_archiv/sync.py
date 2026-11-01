@@ -110,6 +110,18 @@ def first_hour(ha: HA, sid: str, start: int, end: int, kind: str) -> int | None:
     return None
 
 
+def last_hour(ha: HA, sid: str, start: int, end: int, kind: str) -> int | None:
+    """Posledná hodina so štatistikou (hľadá po rokoch odzadu)."""
+    year = 365 * 24 * HOUR
+    t = end
+    while t > start:
+        rows = ha.hourly([sid], max(t - year, start), t, ["mean"] if kind == "mean" else ["sum"]).get(sid)
+        if rows:
+            return max(r["start"] for r in rows)
+        t -= year
+    return None
+
+
 def reconcile_maps(con, ha: HA, slots: list[Slot], meta: dict, hist_start: int, now: int) -> list[str]:
     """Priradí entity k veličinám; pri výmene entity nadviaže históriu."""
     notes = []

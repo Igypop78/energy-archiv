@@ -60,6 +60,11 @@ def main(argv=None):
     p.add_argument("--series", help="vynútiť veličinu (inak podľa typu profilu)")
     sub.add_parser("check-zsd", help="porovnať profil ZSD s odpočtami registrov")
     sub.add_parser("deye-stanice", help="overiť prihlásenie do Deye Cloud a vypísať stanice")
+    p = sub.add_parser("ha-statistiky", help="štatistiky v HA vrátane starých entít (s rozsahom dát)")
+    p.add_argument("filter", nargs="?", help="časť názvu, napr. import alebo energy")
+    p = sub.add_parser("pripoj", help="pripojiť starú entitu z HA k veličine (história pred aktuálnou)")
+    p.add_argument("series")
+    p.add_argument("statistic_id")
     p = sub.add_parser("import-deye", help="import histórie z Deye Cloud")
     p.add_argument("--od", required=True, help="RRRR-MM-DD")
     p.add_argument("--do", default=date.today().isoformat())
@@ -120,7 +125,57 @@ def main(argv=None):
                       f"{r['profil']:.1f} kWh, hodín {r['hodin']}/{r['ocakavane']}")
     elif a.cmd == "deye-stanice":
         for s in deye.Deye.from_cfg(cfg).stations():
-            print(f"id {s.get('id')}: {s.get('name')}  (od {s.get('startOperatingTime')})")
+            t = s.get("startOperatingTime")
+            od = datetime.fromtimestamp(float(t), cfg.tz).strftime("%Y-%m-%d") if t else "?"
+            print(f"id {s.get('id')}: {s.get('name')}  (v prevádzke od {od})")
+    elif a.cmd == "ha-statistiky":
+        mapped = {r["statistic_id"]: r["series_key"] for r in db.all_maps(con)}
+        now = int(time.time()) // 3600 * 3600
+        hist = sync._parse_day(cfg["ha"]["history_start"])
+        with _ha(cfg) as ha:
+            ids = sorted(ha.list_statistic_ids(), key=lambda m: m["statistic_id"])
+            if a.filter:
+                ids = [m for m in ids if a.filter.lower() in m["statistic_id"].lower()]
+            for m in ids:
+                sid = m["statistic_id"]
+                kind = "sum" if m.get("has_sum") else "mean"
+                line = f"{sid:<60} {m.get('statistics_unit_of_measurement') or '':<8}"
+                if a.filter:
+                    first = sync.first_hour(ha, sid, hist, now + 3600, kind)
+                    last = sync.last_hour(ha, sid, hist, now + 3600, kind) if first else None
+                    f = lambda t: datetime.fromtimestamp(t, cfg.tz).strftime("%Y-%m-%d")
+                    line += f" {f(first) + ' – ' + f(last) if first else 'bez hodinových dát':<25}"
+                if sid in mapped:
+                    line += f" ← {mapped[sid]}"
+                print(line)
+        if not a.filter:
+            print("\nTip: energy-archiv ha-statistiky import   (s filtrom sa ukáže aj rozsah dát)")
+    elif a.cmd == "pripoj":
+        maps = con.execute("SELECT * FROM entity_map WHERE series_key=? ORDER BY COALESCE(valid_from,0)",
+                           (a.series,)).fetchall()
+        if not maps:
+            sys.exit(f"veličina {a.series} neexistuje – najprv spusti sync")
+        if a.statistic_id in {m["statistic_id"] for m in maps}:
+            sys.exit("táto entita už je k veličine pripojená")
+        cur = maps[0]
+        now = int(time.time()) // 3600 * 3600
+        hist = sync._parse_day(cfg["ha"]["history_start"])
+        kind = con.execute("SELECT kind FROM series WHERE key=?", (a.series,)).fetchone()["kind"]
+        with _ha(cfg) as ha:
+            switch = cur["valid_from"] or sync.first_hour(ha, cur["statistic_id"], hist, now + 3600, kind)
+            old_first = sync.first_hour(ha, a.statistic_id, hist, now + 3600, kind)
+        if not switch or not old_first:
+            sys.exit("v HA sa nenašli hodinové dáta")
+        if old_first >= switch:
+            sys.exit("stará entita nemá dáta pred aktuálnou – nie je čo pripojiť")
+        con.execute("UPDATE entity_map SET valid_from=? WHERE id=?", (switch, cur["id"]))
+        con.execute("INSERT INTO entity_map(series_key, statistic_id, valid_from, valid_to, note, created) "
+                    "VALUES (?,?,?,?,?,?)", (a.series, a.statistic_id, None, switch, "pripojená stará", int(time.time())))
+        con.commit()
+        db.log(con, "mapovanie", f"{a.series}: pripojená {a.statistic_id} do "
+                                 f"{datetime.fromtimestamp(switch, cfg.tz):%Y-%m-%d %H:%M}")
+        print(f"pripojené: {a.statistic_id} → {a.series} (do {datetime.fromtimestamp(switch, cfg.tz):%Y-%m-%d %H:%M}). "
+              "Spusti: energy-archiv sync")
     elif a.cmd == "import-deye":
         r = deye.import_range(cfg, con, date.fromisoformat(a.od), date.fromisoformat(a.do))
         print(r)

@@ -32,6 +32,7 @@ echo "$APP" > "$("$APP/.venv/bin/python" -c 'import site;print(site.getsitepacka
 cp "$SRC"/deploy/*.service "$SRC"/deploy/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now energy-archiv-web.service energy-archiv-nightly.timer
+systemctl restart energy-archiv-web.service
 
 echo
 echo "Hotovo. Ďalej:"
