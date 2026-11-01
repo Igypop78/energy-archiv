@@ -77,8 +77,19 @@ grid_import;2025-10-26 14:00;1.25
 ```
 Mesačný alebo obdobný súčet sa rozdelí rovnomerne len na hodiny, pre ktoré nemá údaj žiadny iný zdroj. Hodnota s konkrétnou hodinou je ručná oprava s najvyššou prioritou. Jednotka musí sedieť s veličinou (plyn v m³ alebo kWh podľa HA, `energy-archiv status`).
 
+Štvrtý stĺpec môže určiť profil rozdelenia z `config.yaml` → `profily`. Napríklad `vykurovanie` rozdelí plyn tak, že 20 % pripadne rovnomerne na ohrev TUV a 80 % podľa denostupňov:
+```
+gas;2025-01-01..2025-06-30;4856;vykurovanie
+```
+
 ```bash
 energy-archiv pokrytie gas    # mesiac po mesiaci: súčet, hodiny, zdroje
+```
+
+**Náklady** sa za obdobie, keď ich HA nepočítal, dajú dopočítať podľa tarify: hodinová energia × cena v danej hodine. Podporované sú VT/NT, pásma s víkendmi a sviatkami SR, cena z inej veličiny (spot) a pevná cena. Nastavenie je v `config.yaml` → `naklady`:
+```bash
+energy-archiv naklady
+energy-archiv pokrytie grid_import_cost
 ```
 
 ## 5. Obnova do HA

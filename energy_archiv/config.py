@@ -14,7 +14,7 @@ DEFAULTS = {
     "backup": {"dir": "/mnt/nas/energy-archiv", "keep_daily": 14, "keep_monthly": 24},
     # Poradie zdrojov: prvý dostupný vyhráva. Dá sa prepísať pre jednotlivé veličiny.
     "priority": {
-        "default": ["oprava", "zsd", "ha", "deye", "manual"],
+        "default": ["oprava", "zsd", "ha", "vypocet", "deye", "manual"],
         "solar": ["oprava", "ha", "deye", "manual"],
     },
     "ha": {"history_start": "2015-01-01", "resync_hours": 48},
@@ -33,6 +33,14 @@ DEFAULTS = {
     },
     "zsd": {"map": {"dodavka": "grid_export", "odber": "grid_import"}},
     "web": {"host": "0.0.0.0", "port": 8765, "password": None},
+    # profily na rozdelenie súčtov z faktúr (4. stĺpec v ručných hodnotách)
+    "profily": {
+        "vykurovanie": {  # 20 % rovnomerne (ohrev TUV), 80 % podľa typických denostupňov v BA
+            "rovnomerne": 0.2,
+            "mesiace": {1: 590, 2: 480, 3: 400, 4: 230, 5: 60, 6: 0, 7: 0, 8: 0, 9: 50, 10: 250, 11: 420, 12: 560},
+        },
+    },
+    "naklady": {},
 }
 
 

@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from . import __version__, backup, config, db, deye, manual, restore, sync, zsd
+from . import __version__, backup, config, costs, db, deye, manual, restore, sync, zsd
 from .ha import HA
 
 
@@ -71,6 +71,10 @@ def main(argv=None):
     p.add_argument("--znova", action="store_true", help="stiahnuť aj dni, ktoré už sú v archíve")
     p = sub.add_parser("import-manual", help="ručné hodnoty z CSV (faktúry, opravy)")
     p.add_argument("file")
+    p = sub.add_parser("naklady", help="dopočítať náklady/kompenzáciu podľa tarify (config: naklady)")
+    p.add_argument("--od")
+    p.add_argument("--do")
+    p.add_argument("--len", help="len jedna veličina, napr. grid_import_cost")
     p = sub.add_parser("pokrytie", help="mesačný prehľad veličiny")
     p.add_argument("series")
     p = sub.add_parser("mapuj", help="ručne priradiť entitu k veličine")
@@ -182,6 +186,11 @@ def main(argv=None):
         print(r)
     elif a.cmd == "import-manual":
         for m in manual.import_text(cfg, con, Path(a.file).read_text(encoding="utf-8-sig")):
+            print(m)
+    elif a.cmd == "naklady":
+        if not cfg.data.get("naklady"):
+            sys.exit("v config.yaml nie je sekcia naklady (pozri config.example.yaml)")
+        for m in costs.compute(cfg, con, _local_ts(cfg, a.od), _local_ts(cfg, a.do, end=True), a.len):
             print(m)
     elif a.cmd == "pokrytie":
         for r in coverage(cfg, con, a.series):

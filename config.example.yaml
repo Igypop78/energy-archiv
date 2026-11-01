@@ -11,9 +11,9 @@ backup:
 
 # Poradie zdrojov – prvý, ktorý má hodnotu pre danú hodinu, vyhráva.
 #   oprava = ručná oprava jednej hodiny, zsd = elektromer distribučky,
-#   ha = Home Assistant, deye = Deye Cloud, manual = rozpočítané faktúry
+#   ha = Home Assistant, vypocet = dopočítané náklady, deye = Deye Cloud, manual = rozpočítané faktúry
 priority:
-  default: [oprava, zsd, ha, deye, manual]
+  default: [oprava, zsd, ha, vypocet, deye, manual]
   solar: [oprava, ha, deye, manual]
   # battery_in: [oprava, ha, deye]
 
@@ -41,3 +41,36 @@ web:
   host: 0.0.0.0
   port: 8765
   password: null                # alebo WEB_PASSWORD v .env (používateľ ľubovoľný)
+
+# Profily na rozdelenie súčtov z faktúr (4. stĺpec v ručných hodnotách)
+profily:
+  vykurovanie:            # plyn: 20 % rovnomerne (TUV), 80 % podľa typických denostupňov
+    rovnomerne: 0.2
+    mesiace: {1: 590, 2: 480, 3: 400, 4: 230, 5: 60, 6: 0, 7: 0, 8: 0, 9: 50, 10: 250, 11: 420, 12: 560}
+
+# Dopočítanie nákladov: energia × cena v danej hodine → zdroj „vypocet“ (príkaz: energy-archiv naklady)
+naklady:
+  grid_import_cost:
+    energia: grid_import
+    tarify:
+      - od: 2024-01-01
+        typ: vt_nt                       # ceny vrátane distribúcie a DPH
+        nt: ["23:45-05:45", "13:45-15:45"]
+        nt_cena: 0.12
+        vt_cena: 0.21
+  grid_export_compensation:
+    energia: grid_export
+    tarify:
+      - od: 2024-01-01
+        typ: pasma                       # ZSE Virtuálna batéria – výkup s DPH
+        pasma: ["00:00-10:00=0.08211", "10:00-18:00=0.04284", "18:00-24:00=0.08092"]
+        vikend_sviatok: 0.04046
+      - od: 2026-09-01
+        typ: cena_z_veliciny             # spot OKTE z HA
+        velicina: grid_export_price
+        delitel: 1000                    # €/MWh → €/kWh
+  water_cost:
+    energia: water
+    tarify:
+      - {od: 2024-01-01, typ: pevna, cena: 3.0574}   # BVS vodné + stočné s DPH
+      - {od: 2025-10-22, typ: pevna, cena: 3.5885}
