@@ -68,6 +68,7 @@ def main(argv=None):
     p = sub.add_parser("import-deye", help="import histórie z Deye Cloud")
     p.add_argument("--od", required=True, help="RRRR-MM-DD")
     p.add_argument("--do", default=date.today().isoformat())
+    p.add_argument("--znova", action="store_true", help="stiahnuť aj dni, ktoré už sú v archíve")
     p = sub.add_parser("import-manual", help="ručné hodnoty z CSV (faktúry, opravy)")
     p.add_argument("file")
     p = sub.add_parser("pokrytie", help="mesačný prehľad veličiny")
@@ -177,7 +178,7 @@ def main(argv=None):
         print(f"pripojené: {a.statistic_id} → {a.series} (do {datetime.fromtimestamp(switch, cfg.tz):%Y-%m-%d %H:%M}). "
               "Spusti: energy-archiv sync")
     elif a.cmd == "import-deye":
-        r = deye.import_range(cfg, con, date.fromisoformat(a.od), date.fromisoformat(a.do))
+        r = deye.import_range(cfg, con, date.fromisoformat(a.od), date.fromisoformat(a.do), redo=a.znova)
         print(r)
     elif a.cmd == "import-manual":
         for m in manual.import_text(cfg, con, Path(a.file).read_text(encoding="utf-8-sig")):

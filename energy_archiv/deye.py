@@ -147,7 +147,9 @@ def frames_to_hourly(items, tz: ZoneInfo, fields, divisor=1000.0) -> tuple[dict,
     return {f: dict(v) for f, v in out.items()}, dict(covered)
 
 
-def import_range(cfg, con, start: date, end: date, client: Deye | None = None, log=print) -> dict:
+def import_range(cfg, con, start: date, end: date, client: Deye | None = None, log=None,
+                 redo: bool = False) -> dict:
+    log = log or (lambda m: print(m, flush=True))
     tz = cfg.tz
     dcfg = cfg["deye"]
     fmap = {f: s for f, s in (dcfg["map"] or {}).items() if s}
@@ -167,7 +169,12 @@ def import_range(cfg, con, start: date, end: date, client: Deye | None = None, l
     d = start
     while d <= end:
         e = min(d + timedelta(days=30), end + timedelta(days=1))
-        for it in client.daily(sid, d, e):
+        try:
+            items = client.daily(sid, d, e)
+        except Exception as ex:
+            log(f"denné súčty {d} – {e}: CHYBA {ex}")
+            items = []
+        for it in items:
             day = _ts(it.get("timeStamp"), tz)
             if not day and it.get("year"):
                 day = datetime(int(it["year"]), int(it.get("month", 1)), int(it.get("day", 1)), tzinfo=tz)
@@ -184,10 +191,45 @@ def import_range(cfg, con, start: date, end: date, client: Deye | None = None, l
         d = e
     con.commit()
 
-    stats = {"dni": 0, "hodiny": 0, "doladene": 0}
+    stats = {"dni": 0, "preskocene": 0, "hodiny": 0, "doladene": 0}
+    failed: list[str] = []
+    first_series = next(iter(fmap.values()))
     d = start
+    streak = 0
     while d <= end:
-        hourly, covered = frames_to_hourly(client.frames(sid, d), tz, list(fmap), float(dcfg["power_divisor"]))
+        day_start = int(datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
+        if not redo:
+            n = con.execute("SELECT COUNT(*) FROM hourly WHERE series_key=? AND source='deye' AND ts>=? AND ts<?",
+                            (first_series, day_start, day_start + 86400)).fetchone()[0]
+            if n >= 20:
+                stats["preskocene"] += 1
+                d += timedelta(days=1)
+                continue
+        items, err = None, None
+        for attempt in range(3):
+            try:
+                items = client.frames(sid, d)
+                break
+            except Exception as e:  # sieť, limit API, neplatná odpoveď
+                err = e
+                time.sleep(5 * (attempt + 1))
+        if items is None:
+            failed.append(d.isoformat())
+            streak += 1
+            log(f"{d}: CHYBA {err}")
+            if streak >= 10:
+                log("10 chýb za sebou – import zastavený, skús neskôr znova (stiahnuté dni sa preskočia)")
+                break
+            d += timedelta(days=1)
+            continue
+        streak = 0
+        try:
+            hourly, covered = frames_to_hourly(items, tz, list(fmap), float(dcfg["power_divisor"]))
+        except Exception as e:
+            failed.append(d.isoformat())
+            log(f"{d}: CHYBA spracovania {e!r}")
+            d += timedelta(days=1)
+            continue
         cover = sum(covered.values()) / 86400
         for pf, series in fmap.items():
             hrs = hourly.get(pf) or {}
@@ -203,7 +245,10 @@ def import_range(cfg, con, start: date, end: date, client: Deye | None = None, l
             stats["hodiny"] += db.upsert_hourly(con, series, "deye", hrs.items())
         con.commit()
         stats["dni"] += 1
-        log(f"{d}: pokrytie {cover:.0%}")
+        log(f"{d}: {len(items)} záznamov, pokrytie {cover:.0%}")
         d += timedelta(days=1)
+    stats["chyby"] = failed
+    if failed:
+        log(f"nestiahnuté dni ({len(failed)}): {', '.join(failed[:30])}{' …' if len(failed) > 30 else ''}")
     db.log(con, "import deye", f"{start} – {end}: {stats}")
     return stats

@@ -198,7 +198,7 @@ Zdroje: {{ p.sources }}<br>{% if p.total is not none %}Spolu: <b>{{ '%.2f'|forma
                 msgs = manual.import_text(cfg, con(), text)
             elif kind == "deye":
                 od, do = date.fromisoformat(request.form["od"]), date.fromisoformat(request.form["do"])
-                job.start("import deye", lambda: print(deye.import_range(cfg, con(), od, do)))
+                job.start("import deye", lambda: print(deye.import_range(cfg, con(), od, do, log=print)))
                 return redirect(url_for("job"))
         return page("""
 {% if msgs %}<div class="card"><pre>{{ msgs|join('\n') }}</pre></div>{% endif %}
