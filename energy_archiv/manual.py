@@ -76,8 +76,8 @@ def import_text(cfg, con, text: str) -> list[str]:
             msgs.append(f"{key} {per}: oprava {value}")
             continue
         prio = [p for p in cfg.priority(key) if p != "manual"]
-        known = db.best_hourly(con, key, prio, start, end)
-        db.delete_hourly(con, key, "manual", start, end)
+        db.delete_hourly(con, key, "manual", start, end)  # staré rozpočítanie tejto faktúry preč
+        known = {h: v for h, v in db.best_hourly(con, key, prio, start, end).items() if v[1] != "manual"}
         missing = [h for h in range(start, end, 3600) if h not in known]
         rest = value - sum(v for v, _ in known.values())
         if not missing:
