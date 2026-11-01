@@ -141,7 +141,7 @@ def frames_to_hourly(items, tz: ZoneInfo, fields, divisor=1000.0) -> tuple[dict,
             seg = min(u1, h + 3600) - u0
             covered[h] += seg
             for f in fields:
-                p = _f(a.get(f)) or 0.0  # prázdne pole = 0 W
+                p = abs(_f(a.get(f)) or 0.0)  # prázdne pole = 0 W; Deye dáva nabíjanie/predaj so znamienkom −
                 out[f][h] += p / divisor * seg / 3600
             u0 += seg
     return {f: dict(v) for f, v in out.items()}, dict(covered)
@@ -176,6 +176,7 @@ def import_range(cfg, con, start: date, end: date, client: Deye | None = None, l
             for pf, series in fmap.items():
                 v = _f(it.get(DAILY_FIELD.get(pf, "")))
                 if v is not None:
+                    v = abs(v)
                     daily[day.date().isoformat()][series] = v
                     con.execute("INSERT INTO daily_ref(series_key, day, source, value) VALUES (?,?,?,?) "
                                 "ON CONFLICT DO UPDATE SET value=excluded.value",
