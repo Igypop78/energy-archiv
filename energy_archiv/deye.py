@@ -19,6 +19,7 @@ import requests
 from . import db
 
 SUCCESS = "1000000"
+RATE_LIMIT_CODES = {"1001001"}
 # pole výkonu (frames) → pole denného súčtu (granularity 2)
 DAILY_FIELD = {
     "generationPower": "generationValue",
@@ -36,7 +37,7 @@ class DeyeError(RuntimeError):
 
 class Deye:
     def __init__(self, base_url, app_id, app_secret, email, password=None, password_sha256=None,
-                 delay: float = 0.4):
+                 delay: float = 1.5):
         if not (app_id and app_secret and email and (password or password_sha256)):
             raise DeyeError("chýba DEYE_APP_ID, DEYE_APP_SECRET, DEYE_EMAIL alebo DEYE_PASSWORD v .env")
         self.base = base_url.rstrip("/") + "/v1.0"
@@ -45,6 +46,7 @@ class Deye:
         self.delay = delay
         self.s = requests.Session()
         self.token, self.token_exp = None, 0.0
+        self.limited = 0
 
     @classmethod
     def from_cfg(cls, cfg):
@@ -58,8 +60,9 @@ class Deye:
         if auth:
             headers["Authorization"] = f"Bearer {self._token()}"
         err = None
-        for attempt in range(5):
-            if attempt:
+        limit_hits = 0
+        for attempt in range(8):
+            if attempt and not limit_hits:
                 time.sleep(min(2 ** attempt, 30))
             try:
                 r = self.s.post(f"{self.base}/{path}", json=body, headers=headers, timeout=30)
@@ -71,8 +74,18 @@ class Deye:
                 continue
             r.raise_for_status()
             data = r.json()
-            if data.get("success") is False or str(data.get("code", SUCCESS)) != SUCCESS:
-                raise DeyeError(f"{path}: {data.get('code')} {data.get('msg')}")
+            code = str(data.get("code", SUCCESS))
+            if code in RATE_LIMIT_CODES or "too many" in str(data.get("msg", "")).lower():
+                self.limited += 1
+                wait = min(60 * (1 + limit_hits), 300)
+                limit_hits += 1
+                print(f"   limit Deye API – čakám {wait} s", flush=True)
+                time.sleep(wait)
+                self.delay = min(self.delay * 1.5, 10)  # trvalo spomaliť
+                err = DeyeError(f"{path}: {code} {data.get('msg')}")
+                continue
+            if data.get("success") is False or code != SUCCESS:
+                raise DeyeError(f"{path}: {code} {data.get('msg')}")
             time.sleep(self.delay)
             return data
         raise DeyeError(f"{path}: {err}")
