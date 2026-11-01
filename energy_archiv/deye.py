@@ -139,7 +139,9 @@ def _ts(v, tz) -> datetime | None:
 
 def frames_to_hourly(items, tz: ZoneInfo, fields, divisor=1000.0) -> tuple[dict, dict]:
     """Integruje výkony podľa skutočných časových rozostupov → {pole: {utc_hodina: kWh}}, pokrytie."""
-    pts = sorted((t, it) for it in items if (t := _ts(it.get("timeStamp"), tz)))
+    # hneď do UTC: pri zmene času sa miestne 02:xx opakuje a porovnanie by ignorovalo „fold“
+    pts = sorted(((t.astimezone(timezone.utc), it) for it in items if (t := _ts(it.get("timeStamp"), tz))),
+                 key=lambda x: x[0])
     out = {f: defaultdict(float) for f in fields}
     covered = defaultdict(float)  # sekundy pokryté dátami v hodine
     for (t0, a), (t1, _b) in zip(pts, pts[1:]):
@@ -147,7 +149,7 @@ def frames_to_hourly(items, tz: ZoneInfo, fields, divisor=1000.0) -> tuple[dict,
         if dt <= 0 or dt > 20 * 60:  # medzera > 20 min sa neinterpoluje
             continue
         # úsek priradíme hodinám (môže pretínať hranicu hodiny)
-        u0 = t0.astimezone(timezone.utc).timestamp()
+        u0 = t0.timestamp()
         u1 = u0 + dt
         while u0 < u1:
             h = int(u0) // 3600 * 3600
