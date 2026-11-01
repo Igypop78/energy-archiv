@@ -15,6 +15,7 @@ backup:
 priority:
   default: [oprava, zsd, ha, vypocet, deye, manual]
   solar: [oprava, ha, deye, manual]
+  grid_export_compensation: [oprava, vypocet, ha]   # výpočet so spotovým poplatkom má prednosť pred HA
   # battery_in: [oprava, ha, deye]
 
 ha:
@@ -69,6 +70,7 @@ naklady:
         typ: cena_z_veliciny             # spot OKTE z HA
         velicina: grid_export_price
         delitel: 1000                    # €/MWh → €/kWh
+        prirazka: -0.015                 # poplatok obchodníka −15 €/MWh
   water_cost:
     energia: water
     tarify:

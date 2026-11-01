@@ -25,6 +25,7 @@ naklady:
         typ: cena_z_veliciny
         velicina: grid_export_price
         delitel: 1000          # €/MWh → €/kWh
+        prirazka: -0.015       # €/kWh pripočítané k cene (−15 €/MWh poplatok obchodníka)
   water_cost:
     energia: water
     tarify:
@@ -117,8 +118,9 @@ def price_fn(t: dict, con, cfg):
     if typ == "cena_z_veliciny":
         series = t["velicina"]
         div = float(t.get("delitel", 1))
+        add = float(t.get("prirazka", 0))  # €/kWh, napr. -0.015 = poplatok 15 €/MWh
         prices = {ts: v for ts, (v, _) in db.best_hourly(con, series, cfg.priority(series)).items()}
-        return lambda ts, loc: (prices[ts] / div) if ts in prices else None
+        return lambda ts, loc: (prices[ts] / div + add) if ts in prices else None
     raise ValueError(f"neznámy typ tarify {typ}")
 
 
