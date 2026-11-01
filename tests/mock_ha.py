@@ -17,6 +17,7 @@ class State:
         self.means: dict[str, dict[int, float]] = {}
         self.meta: dict[str, dict] = {}
         self.imports: list = []
+        self.adjusts: list = []
 
     def add_sum(self, sid, unit="kWh", unit_class="energy"):
         self.stats.setdefault(sid, {})
@@ -68,6 +69,14 @@ def handle(state: State, msg: dict):
             if rows:
                 out[sid] = rows
         return out
+    if t == "recorder/adjust_sum_statistics":
+        a = _ts(msg["start_time"])
+        st = state.stats[msg["statistic_id"]]
+        for ts in st:
+            if ts >= a:
+                st[ts] += msg["adjustment"]
+        state.adjusts.append(msg)
+        return None
     if t == "recorder/import_statistics":
         md = msg["metadata"]
         if "unit_class" in md:

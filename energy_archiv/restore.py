@@ -77,34 +77,48 @@ def plan(cfg, con, ha: HA, series: str, target: str | None = None,
     deltas = [values.get(h, (0.0, None))[0] / factor for h in hours]
     total = sum(deltas)
     units = {unit_class: stored_unit} if unit_class else None
-    after = _ha_sums(ha, target, last, int(time.time()) // HOUR * HOUR + HOUR, units,
-                     first_only=True)
+    # 1) začiatok: HA berie pri prvej hodine bez predchodcu súčet 0 → história musí začínať
+    #    od súčtu, ktorý je v HA tesne pred obdobím (alebo od 0), inak vznikne obrovský skok.
+    before = None
+    t = first
+    for _ in range(12):
+        rows = [r for r in _ha_sums(ha, target, t - 365 * 24 * HOUR, t, units) if r.get("sum") is not None
+                and r["start"] < first]
+        if rows:
+            before = rows[-1]
+            break
+        t -= 365 * 24 * HOUR
+    start_sum = before["sum"] if before else 0.0
+    end_sum = start_sum + total
+
+    # 2) koniec: novšie hodiny v HA (dlhodobé aj 5-min štatistiky) sa posunú o rozdiel,
+    #    aby nadviazali na obnovenú históriu (recorder/adjust_sum_statistics).
+    after = _ha_sums(ha, target, last, int(time.time()) // HOUR * HOUR + HOUR, units, first_only=True)
     after = [r for r in after if r.get("sum") is not None]
+    result["adjust"] = None
     if after and after[0]["start"] == last:
-        # HA má poslednú obnovovanú hodinu: jej súčet zostane rovnaký, história sa dopočíta spätne.
-        # Nové hodiny HA počíta z 5-min štatistík, ktoré pokračujú od tohto súčtu → bez skoku.
-        end_sum = after[0]["sum"]
-        start_sum = end_sum - total
-        result["anchor"] = f"nadviazané na aktuálny súčet v HA ({end_sum:.2f}) o {iso(last)}"
+        old_end = after[0]["sum"]                      # súčet HA na konci poslednej hodiny (prepíše sa)
+        adj_from = last + HOUR
     elif after:
-        a = after[0]
-        # skutočný prírastok prvej hodiny po obnove: z archívu, inak to, čo hlási HA
-        known = db.best_hourly(con, series, cfg.priority(series), a["start"], a["start"] + HOUR)
-        c_a = known[a["start"]][0] / factor if known else (a.get("change") or 0.0)
-        end_sum = a["sum"] - c_a  # súčet na konci poslednej obnovovanej hodiny
-        if after[0]["start"] != last + HOUR:
+        a_ = after[0]
+        known = db.best_hourly(con, series, cfg.priority(series), a_["start"], a_["start"] + HOUR)
+        c_a = known[a_["start"]][0] / factor if known else (a_.get("change") or 0.0)
+        old_end = a_["sum"] - c_a
+        adj_from = a_["start"]
+        if a_["start"] != last + HOUR:
             result["warnings"].append("medzi obnovou a ďalšími dátami v HA je medzera – nadväzujem na prvé ďalšie")
         if not known and deltas and c_a > 10 * max(1e-9, max(deltas)):
             result["warnings"].append(
-                f"prvá hodina v HA po obnove má veľký prírastok {c_a:.2f} (pravdepodobne doháňanie po výpadku) – "
-                "zváž obnovu s dlhším koncom")
-        start_sum = end_sum - total
-        result["anchor"] = f"nadviazané na súčet v HA o {iso(a['start'])}"
+                f"prvá hodina v HA po obnove má veľký prírastok {c_a:.2f} (pravdepodobne doháňanie po výpadku)")
     else:
-        before = _ha_sums(ha, target, first - 30 * 24 * HOUR, first, units)
-        before = [r for r in before if r.get("sum") is not None]
-        start_sum = before[-1]["sum"] if before else 0.0
-        result["anchor"] = "pokračuje od posledného súčtu pred obnovou" if before else "začína od 0"
+        old_end = None
+    if old_end is not None and abs(end_sum - old_end) > 1e-9:
+        # posun začína v hodine `last`, aby sa posunuli aj 5-min štatistiky tejto hodiny;
+        # dlhodobé hodiny ≤ last potom prepíše import
+        result["adjust"] = {"start": last, "adjustment": end_sum - old_end, "unit": stored_unit}
+    result["anchor"] = ((f"od súčtu pred obdobím ({start_sum:.2f})" if before else "od 0") +
+                        (f"; novšie dáta v HA sa posunú o {end_sum - old_end:+.2f} {stored_unit}"
+                         if result["adjust"] else ""))
 
     stats, acc = [], start_sum
     for h, d in zip(hours, deltas):
@@ -141,6 +155,10 @@ def apply(con, ha: HA, p: dict, chunk: int = 2000) -> int:
         except HAError as e:
             last_err = e
             continue
+        adj = p.get("adjust")
+        if adj:
+            ha.call("recorder/adjust_sum_statistics", statistic_id=p["target"], start_time=iso(adj["start"]),
+                    adjustment=adj["adjustment"], adjustment_unit_of_measurement=adj["unit"])
         for i in range(0, len(stats), chunk):
             ha.import_statistics(md, stats[i:i + chunk])
         db.log(con, "obnova", f"{p['series']} → {p['target']}: {len(stats)} hodín ({p.get('anchor')})")

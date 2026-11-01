@@ -74,7 +74,8 @@ def test_sync_restore(tmp):
     db.upsert_hourly(con, "grid_import", "zsd", [(t0 + i * H, 0.6) for i in range(10)])
     con.commit()
 
-    # obnova celej histórie do novej entity
+    # obnova celej histórie do novej entity; HA medzitým zapísal ďalšiu hodinu (200), ktorú archív ešte nemá
+    st.stats["sensor.grid_new"][t0 + 200 * H] = 0.7 * 80
     with HA(f"http://127.0.0.1:{port}", "test") as ha:
         p = restore.plan(cfg, con, ha, "grid_import")
         assert p["target"] == "sensor.grid_new"
@@ -82,15 +83,17 @@ def test_sync_restore(tmp):
         assert p["sources"] == {"zsd": 10, "ha": 170}, p["sources"]
         n = restore.apply(con, ha, p)
     s = st.stats["sensor.grid_new"]
-    assert n == 200 and len(s) == 200
-    hrs = sorted(s)
+    assert n == 200 and len(s) == 201
+    assert abs(s[t0 + 200 * H] - s[t0 + 199 * H] - 0.7) < 1e-9, "hodina po obnove pokračuje bez skoku"
+    hrs = sorted(s)[:200]
     ch = [s[b] - s[a] for a, b in zip(hrs, hrs[1:])]
     assert all(abs(c - 0.6) < 1e-9 for c in ch[:9])      # hodiny 1–9 zo ZSD
     assert abs(ch[9] - 0.5) < 1e-9                         # hodina 10 z HA (stará entita)
     assert all(abs(c) < 1e-9 for c in ch[99:119])          # výpadok 100–119 = 0
     assert abs(ch[120] - 0.7) < 1e-9                       # nová entita
     print("  obnova: posledný súčet", round(s[hrs[-1]], 3), "anchor:", p["anchor"])
-    assert abs(s[hrs[-1]] - 0.7 * 79) < 1e-9, "posledná hodina musí zostať na pôvodnom súčte HA"
+    assert abs(s[hrs[0]] - 0.6) < 1e-9, "prvá hodina histórie musí začínať od 0 (+ jej prírastok)"
+    assert abs(s[hrs[-1]] - 106.3) < 1e-9
     assert "unit_class" not in st.imports[-1]  # záložná varianta metadát po odmietnutí
 
     # čiastočná obnova so súčtami v HA po nej – nadviazanie na koniec
@@ -100,7 +103,8 @@ def test_sync_restore(tmp):
         restore.apply(con, ha, p)
     g = st.stats["sensor.gas"]
     assert abs(g[t0 + 150 * H] - g[t0 + 149 * H] - 0.2) < 1e-9, (g[t0 + 149 * H], g[t0 + 150 * H])
-    assert p["anchor"].startswith("nadviazané")
+    assert p["adjust"] and "posunú" in p["anchor"], p["anchor"]
+    assert abs(g[t0] - 0.2) < 1e-9 or g[t0] < 1, "história plynu začína od 0"
     srv.shutdown()
     print("OK sync + výmena entity + obnova")
     return cfg, con
