@@ -90,6 +90,7 @@ def test_sync_restore(tmp):
     assert all(abs(c) < 1e-9 for c in ch[99:119])          # výpadok 100–119 = 0
     assert abs(ch[120] - 0.7) < 1e-9                       # nová entita
     print("  obnova: posledný súčet", round(s[hrs[-1]], 3), "anchor:", p["anchor"])
+    assert abs(s[hrs[-1]] - 0.7 * 79) < 1e-9, "posledná hodina musí zostať na pôvodnom súčte HA"
     assert "unit_class" not in st.imports[-1]  # záložná varianta metadát po odmietnutí
 
     # čiastočná obnova so súčtami v HA po nej – nadviazanie na koniec

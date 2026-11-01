@@ -77,10 +77,16 @@ def plan(cfg, con, ha: HA, series: str, target: str | None = None,
     deltas = [values.get(h, (0.0, None))[0] / factor for h in hours]
     total = sum(deltas)
     units = {unit_class: stored_unit} if unit_class else None
-    after = _ha_sums(ha, target, last + HOUR, int(time.time()) // HOUR * HOUR + HOUR, units,
+    after = _ha_sums(ha, target, last, int(time.time()) // HOUR * HOUR + HOUR, units,
                      first_only=True)
     after = [r for r in after if r.get("sum") is not None]
-    if after:
+    if after and after[0]["start"] == last:
+        # HA má poslednú obnovovanú hodinu: jej súčet zostane rovnaký, história sa dopočíta spätne.
+        # Nové hodiny HA počíta z 5-min štatistík, ktoré pokračujú od tohto súčtu → bez skoku.
+        end_sum = after[0]["sum"]
+        start_sum = end_sum - total
+        result["anchor"] = f"nadviazané na aktuálny súčet v HA ({end_sum:.2f}) o {iso(last)}"
+    elif after:
         a = after[0]
         # skutočný prírastok prvej hodiny po obnove: z archívu, inak to, čo hlási HA
         known = db.best_hourly(con, series, cfg.priority(series), a["start"], a["start"] + HOUR)
