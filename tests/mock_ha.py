@@ -34,6 +34,8 @@ def handle(state: State, msg: dict):
     t = msg["type"]
     if t == "energy/get_prefs":
         return state.prefs
+    if t == "energy/info":
+        return {"cost_sensors": getattr(state, "cost_sensors", {})}
     if t == "recorder/list_statistic_ids":
         return list(state.meta.values())
     if t == "recorder/get_statistics_metadata":

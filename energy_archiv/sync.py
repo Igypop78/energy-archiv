@@ -39,7 +39,7 @@ def _slug(sid: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", sid.split(".", 1)[-1].split(":", 1)[-1].lower()).strip("_")
 
 
-def discover(prefs: dict, known_ids: set[str]) -> list[Slot]:
+def discover(prefs: dict, known_ids: set[str], cost_sensors: dict | None = None) -> list[Slot]:
     """Z nastavení Energy panela zostaví zoznam veličín (vrátane nákladov a cien)."""
     slots: list[Slot] = []
     counters: dict[str, int] = {}
@@ -54,7 +54,8 @@ def discover(prefs: dict, known_ids: set[str]) -> list[Slot]:
             return
         key = key_for(role)
         slots.append(Slot(key, role, sid, "sum", ROLE_LABELS.get(role, role)))
-        cost_id = cost or (f"{sid}_{cost_suffix}" if f"{sid}_{cost_suffix}" in known_ids else None)
+        auto = (cost_sensors or {}).get(sid)   # HA: energy/info → cost_sensors (automatické entity nákladov)
+        cost_id = cost or (auto if auto and auto in known_ids else None) or (f"{sid}_{cost_suffix}" if f"{sid}_{cost_suffix}" in known_ids else None)
         if cost_id:
             name = "náklady" if cost_suffix == "cost" else "kompenzácia"
             slots.append(Slot(f"{key}_{cost_suffix}", role, cost_id, "sum",
@@ -159,8 +160,12 @@ def sync(cfg, con, ha: HA, now: int | None = None, full: bool = False) -> dict:
     resync = int(cfg["ha"]["resync_hours"]) * HOUR
 
     prefs = ha.energy_prefs()
+    try:
+        cost_sensors = (ha.call("energy/info") or {}).get("cost_sensors") or {}
+    except Exception:
+        cost_sensors = {}
     meta = {m["statistic_id"]: m for m in ha.list_statistic_ids()}
-    slots = discover(prefs, set(meta))
+    slots = discover(prefs, set(meta), cost_sensors)
     notes = reconcile_maps(con, ha, slots, meta, hist_start, now)
 
     stats = {"mapovanie": notes, "hodiny": 0, "veliciny": 0}

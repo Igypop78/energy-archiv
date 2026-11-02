@@ -105,8 +105,16 @@ def test_sync_restore(tmp):
     assert abs(g[t0 + 150 * H] - g[t0 + 149 * H] - 0.2) < 1e-9, (g[t0 + 149 * H], g[t0 + 150 * H])
     assert p["adjust"] and "posunú" in p["anchor"], p["anchor"]
     assert abs(g[t0] - 0.2) < 1e-9 or g[t0] < 1, "história plynu začína od 0"
+    # nákladová entita s iným názvom, známa len z energy/info
+    st.add_sum("sensor.plyn_naklady_auto", "EUR", None)
+    st.stats["sensor.plyn_naklady_auto"] = {t0 + 199 * H: 1.0}
+    st.cost_sensors = {"sensor.gas": "sensor.plyn_naklady_auto"}
+    with HA(f"http://127.0.0.1:{port}", "test") as ha:
+        sync.sync(cfg, con, ha, now=now)
+    m = con.execute("SELECT statistic_id FROM entity_map WHERE series_key='gas_cost' AND valid_to IS NULL").fetchone()
+    assert m and m["statistic_id"] == "sensor.plyn_naklady_auto", m
     srv.shutdown()
-    print("OK sync + výmena entity + obnova")
+    print("OK sync + výmena entity + obnova + cost_sensors")
     return cfg, con
 
 
